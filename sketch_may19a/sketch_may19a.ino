@@ -21,8 +21,12 @@ int num_dots_active;
 int num_old_dots_active;
 unsigned int peakToPeak;
 unsigned int volt_thresh = 0;
-unsigned int volt_avg = 0;
-const float THRESH_FAC = 1.2;
+unsigned int volt_avg = 500;
+const float THRESH_FAC_MIN = 1.2;
+const float THRESH_FAC_MAX = 1.2;
+float thresh_fac = 1.5;
+const float thresh_fac_fac = 0.03;
+const CRGB OFF_COLOR = CRGB(4,4,4);
 bool dot_creating = false;
 
 const float vtfac = 0.03;
@@ -31,20 +35,39 @@ const int DOT_WIDTH = 4;
 const int MAX_LIFETIME = 10;
 const int COLOR_SHIFT = 5;
 
+const int SAT_MIN = 150;
+const int SAT_MAX = 152;
+const int BRT_MIN = 150;
+const int BRT_MAX = 152;
+
 void setup()
 {
   // put your setup code here, to run once:
   delay(1000);
   FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
   
-  for (int i = 0; i < NUM_LEDS; i++)
-    leds[i] = CRGB::Black;
-  FastLED.show();
-  
   num_dots_active = 0;
   num_old_dots_active = 0;
   randomSeed(420);
 
+  delay(500);
+  uint32_t color = 0 - NUM_LEDS;
+  while (color >= 0 - NUM_LEDS || color < 0xFF) {
+    for (int i = 0; i < NUM_LEDS; i++) {
+      if (color + i > 0xFF)
+        leds[i] = CRGB(0,0,0);
+      else
+        leds[i] = CHSV(color+i, 255, color + NUM_LEDS < 0xFF ? color + NUM_LEDS : 0xFF);
+    }
+    FastLED.show();
+    color ++;
+  }
+
+
+  for (int i = 0; i < NUM_LEDS; i++)
+    leds[i] = OFF_COLOR;
+  FastLED.show();
+  
   //Serial.begin(9600);
 }
 
@@ -84,15 +107,16 @@ void analyze_music()
   if (peakToPeak > volt_thresh) {
     //if so, add new dot
     add_dot(int(volt_thresh) - int(peakToPeak));
+    thresh_fac = (thresh_fac_fac) * THRESH_FAC_MIN + thresh_fac * (1-thresh_fac_fac);
   } else {
     end_dot();
+    thresh_fac = (thresh_fac_fac) * THRESH_FAC_MAX + thresh_fac * (1-thresh_fac_fac);
   }
 
   //update thresh based on current volume and number of recent dots
   //...or to make it easy, let's just go with increases in volume make dots!
   volt_avg = vtfac * peakToPeak + (1-vtfac) * volt_avg;
-  volt_thresh = volt_avg * THRESH_FAC;
-
+  volt_thresh = volt_avg * thresh_fac;
 }
 
 void analyze_midi()
@@ -146,7 +170,7 @@ void update_dot_locations()
   for (int i = 0; i < num_dots_active; i++)
   {
     for (int j = 0; j < DOT_WIDTH; j++)
-      light_on(dot[i].position+j, (dot[i].color + COLOR_SHIFT * dot[i].position) % (0xFFFFFF+1));
+      light_on(dot[i].position+j, dot[i].color);
   }
 
   FastLED.show();
@@ -162,7 +186,8 @@ void light_on(uint32_t pos, uint32_t color)
   if (pos > NUM_LEDS)
     return;
   
-  leds[pos] = CRGB(color & 0xFF, (color & 0xFF00) >> 8, (color & 0xFF0000) >> 16);
+  //leds[pos] = CHSV(color & 0xFF, (color & 0xFF00) >> 8, (color & 0xFF0000) >> 16);
+  leds[pos] = CHSV(color, SAT_MIN, BRT_MIN);
 }
 
 void light_off(uint32_t pos)
@@ -170,7 +195,7 @@ void light_off(uint32_t pos)
   if (pos > NUM_LEDS)
     return;
   
-  leds[pos] = CRGB(0,0,0);
+  leds[pos] = OFF_COLOR;
 }
 
 void add_dot(int color_param)
@@ -185,12 +210,12 @@ void add_dot(int color_param)
     dot[num_dots_active].lifetime = 0;
   } else {
     dot[num_dots_active].position = random(NUM_LEDS);
-    dot[num_dots_active].color = random(0xFFFFFF+1);
+    dot[num_dots_active].color = random(0xFF+1);// | (random(SAT_MIN,SAT_MAX+1) << 8) | (random(BRT_MIN,BRT_MAX+1) << 16);
     dot[num_dots_active].direction = random(2);
     dot[num_dots_active].lifetime = 0;
   
     //dot[num_dots_active].position = 0;
-    //dot[num_dots_active].color = 0xFFFFFF;
+    //dot[num_dots_active].color = 0xFF;
     //dot[num_dots_active].direction = true;
     dot[num_dots_active].lifetime = 0;
   }
